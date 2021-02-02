@@ -1,0 +1,335 @@
+---
+title: "_Capital Bikeshare_ Data Analysis"
+author: "Ashley Pearmain"
+date: "Last Updated: `r format(Sys.time(), '%b %d, %Y')` " 
+
+output:
+  html_document:
+    number_sections: FALSE # the sections are numbered
+    hightlight: pygments #  try default, tango, pygments, kate, monochrome, espresso, zenburn, haddock, breezedark, and textmate. Pass null to prevent syntax highlighting.
+    theme: cerulean # try cerulean, journal, flatly, darkly, readable, spacelab, united, cosmo, lumen, paper, sandstone, simplex, and yeti
+    df_print: paged
+---
+
+# Introduction
+_Capital Bikeshare_ is a bicycle hiring service granting individuals in the USA to cycle to work, school, extracurricular activities etc. This encourages physical exercise and a chance to use another means of transportation. 
+
+With potentially tens of thousands of trips made within the last year, this data supplies plenty of examination opportunities and research questions to be answered. Furthermore, with how this data was collected throughout a growing pandemic it will reveal if this impacted the public's cycling activity.     
+
+
+# Data
+This data comprises of more than 4,300 available bikes  at 500 stations across six jurisdictions, the jurisdiction of Washington, DC is concerned in this report. These bicycles are available 24 hours a day, every day of the year, with riders having access to a bike at multiple stations.
+
+The data analysed through this report has been provided by _Capital Bikeshare_ for the public to view. The source raw data is taken from January 2019 to July 2020, however involves variables not needed for this analysis thus some have been disregarded. The table below depicts the useful (selected) and non-useful (disregarded) variables of the bike journey data:
+
+Selected Variables|Disregarded Variables
+--|--
+Duration|Bike number 
+Started at|Ride id
+Ended at|Rideable type
+Start station name|Start station id 
+End station name|End station id
+Member casual|Start lat  
+-|Start lng
+-|End lat
+-|End lng 
+-|Is equity
+-|Member type
+
+Considerations were made to not involve journey's that were twenty-four hours or more in duration as these trips are not seen as realistic for this analysis, because all bike rides over the limited time hire period are excluded. The interest here lies within bike journey's commencing in the year 2019 and before August 2020, thus the bike journey's started outside this range were excluded. Analysis on the bike ride duration's determined that some data elements were in minus timings, this is clearly a false reading and all negative duration times are disregarded.    
+
+
+```{r, echo = FALSE, message = FALSE, include = FALSE, eval = TRUE}
+library("tidyverse")
+library("here")
+library("lubridate")
+library("janitor")
+library(ggplot2)
+library(readr)
+```
+
+
+
+```{r, include = FALSE, echo = FALSE, message = FALSE, eval = TRUE}
+file_paths <- list.files(path = here("data", "data_rides"), full.names = TRUE) 
+rides_raw <- tibble() # empty tibble so rows can be bind together
+
+
+for (path in file_paths) {
+
+rides_new <- read_csv(path)
+
+  # Binding the rows together will throw an error because the column "Start station number"
+  # (which exists in some of the files) is sometimes parsed as <double> and sometimes parsed
+  # as character. To make sure that the rows can be glued together, we must ensure that it is
+  # always coerced to <double> which is what the following code if-statement does.
+  if ("Start station number" %in% colnames(rides_new)) { # if the column "Start station number" exists
+
+    # Ensures that the column "Start station number" is <double> and not <character>.
+    rides_new <- rides_new %>%
+      mutate(`Start station number` = as.double(`Start station number`))
+  }
+
+  # Now we can bind the tables together by row.
+  rides_raw <- bind_rows(rides_raw, rides_new)
+}
+
+glimpse(rides_raw)
+summary(rides_raw) 
+names(rides_raw) # names
+str(rides_raw) # structure
+print(rides_raw) # these functions are here to get a good idea of the data structure etc
+tail(rides_raw)
+```
+
+
+```{r,include = FALSE, eval = TRUE, echo = FALSE, message = FALSE }
+rides <- rides_raw %>%
+    
+    mutate(ended_at = coalesce(`End date`, ended_at)) %>%
+    mutate(started_at = coalesce(`Start date`, started_at)) %>%
+    mutate(duration = as.duration(ended_at - started_at)) %>%
+    mutate(start_station_name = coalesce(`Start station`, start_station_name)) %>%
+    mutate(end_station_name = coalesce(`End station`, end_station_name)) %>%
+    mutate(member_casual = coalesce(`Member type`, member_casual)) %>%
+    
+      # to disregard  variables 
+    select(!c(ride_id, rideable_type, start_lat, start_lng, `Bike number`, 
+              end_station_id, start_station_id,
+              is_equity, end_lat, end_lng, `Start station number`, `End station number`, 
+              `Member type`, Duration, `Member type`, `End station`, `Start station`,
+              `End date`,`Start date` ))  # try change `Member type` to member_type
+
+           # start_station = `Start station`,
+           # end_station = `End station`,  member_type = `Member type`)   
+  
+  summary(rides)  
+  glimpse(rides)  
+
+
+```
+
+
+```{r, include = FALSE, eval = TRUE, echo = FALSE, message = FALSE}
+rides <- rides %>%
+  filter(duration > 0 & duration < 60 * 60 * 24) %>% 
+  #  because we want durations less to 24 hours and not the negative durations in the data set
+  filter(year(started_at) %in% c(2019, 2020)) %>%
+  filter(year(started_at) == 2019 | (year(started_at) == 2020 & month(started_at) < 8)) # month started must be before august 2020
+
+print(rides)
+glimpse(rides)
+tail(rides)
+
+```
+
+
+# Questions
+
+#####  What is the most common bike journey duration?  
+
+In finding the solution here it is necessary to examine and count the similar journey duration's. An assumption here is that all journeys lasting longer than twenty-four hours are not seen as practical or realistic and have therefore been disregarded. Figure 1 displays the results. Journeys longer than fifty minutes are in very low numbers and so are not in view within Figure 1. Setting the number of bin intervals it every seventeen seconds allows for high precision when determining the exact journey duration.
+
+
+#####  Has there been a behavioural change in bike journeys made during the occuring pandemic? 
+
+To answer this question the number of journeys made throughout the first seven months of 2019 will be compared against the number of journeys made in the first seven months of 2020 (where the pandemic began). On a monthly basis, January to end of July for both 2019 and 2020. Figure 2 states the results. 
+
+
+#####  What is/are the most popular travel destination(s)?
+
+To figure out a solution for this question the end station of all the bicycles over the nineteen months will be counted and analysed with their associated destination location. Figure 3 presents the findings here, with the top fifteen bike end stations in Washington DC. 
+
+
+##### Are the bikes used more so for job commuting than recreational travel? 
+
+Answering this question involves inspecting the bike journeys made throughout the days of the week. If similarities in bike journey duration are present, especially on weekdays (as a high number of jobs operate on weekdays), then it will be assumed these journeys were for job commutes. Typically recreational activities occur on weekends and so this is a good indication of recreational travel, in accordance with studying the journey duration's. If the weekday journey duration's, on average, are different to the journey duration's on the weekend, this could suggest they were not job commutes. 
+
+
+#####  What is the general trend of bike rides from the start of 2019 to mid 2020?
+
+Examining the number of monthly bike journeys throughout the nineteen months of data with respect to time, should reveal an ongoing trend (however it will be noted alongside the recent pandemic events). Figure 5 presents the results alongside the number of individuals' Membership Type, to see if casual members or subscribed members have been more popular over the nineteen months. 
+
+
+
+# Analysis
+
+
+## 1. What is the most common bike journey duration? 
+
+```{r, eval = TRUE, echo = FALSE, message = TRUE, error = FALSE, warning = FALSE}
+# looking at the durations for close examination
+# rides %>%
+  # select(duration) %>%
+  # ggplot() +
+  # geom_point(mapping = aes(y = duration, x = 1: 4588575))
+ # close examinaion shows durations are showing negative values 
+
+rides %>% 
+  ggplot( ) + 
+  geom_histogram(mapping = aes(x = duration / 60, fill = "red" ),
+                 binwidth = 1 / 6 , show.legend = FALSE, alpha = 0.7) +
+                 scale_x_continuous(limits = c(0, 50), 
+                                    breaks = seq(from = 0, to = 50, by = 2)) +
+                 scale_y_continuous(limits = c(0 , 50000), 
+                                   breaks = seq(from = 0, to = 50000, by = 5000),
+                                   labels =  function(x) format(x, scientific = TRUE)) +
+  # editing the histogram
+  labs(title = "Visualisation For Question 1",
+       x = "Duration (minutes)",
+       y = "Number of Rides (Frequency)",
+       caption = "Figure 1: Showing bike journey count (Frequency)
+       versus the Duration of the journey's in minutes" ) +
+  # annotation
+  geom_vline(xintercept = 30) +
+  annotate(
+    geom = "text",
+    x = 37, y = 10000,
+    label = "Drop off limit \n(2$ charge boundry) ") +
+  geom_vline(xintercept = 6) +
+  geom_hline(yintercept = 45800) +
+  annotate(
+    geom = "text",
+    x = 16, y = 46000,
+    label = "The most common \nbike joureny duartion"
+  )
+  
+
+```
+
+
+
+Surveying the results of Figure 1, the most common bike ride duration is six minutes as over 45 thousand rides are classed at this duration. With help from the annotation (left of histogram) this fact can be seen clearly. Subsequently the annotation on the right of the histogram on Figure 1, highlights the thirty minute bike service drop off limit. On the bike hiring website, _Capital Bikeshare_, there is two type of bike hire service. It costs two US dollars to hire a bike for 30 minutes and so that is why there is a step decrease in the number of bike rides leading up to the thirty minute point. Furthermore, from this cut off point the number of rides lasting thirty minute or more is considerably low. 
+
+
+## 2. Has there been a behavioural change in bike journeys made during the occuring pandemic? 
+```{r, eval = TRUE, echo = FALSE, message = TRUE}
+
+rides %>%
+  mutate(year = as.factor(year(started_at))) %>%
+  mutate(month = month(started_at, label = TRUE)) %>%
+  filter(month %in% month.abb[1:7]) %>%
+  ggplot(mapping = aes(x = month, fill = year)) +
+  geom_bar(position = position_dodge(),  alpha = 0.7) +
+  scale_y_continuous(limits = c(from = 0, to = 380000), 
+                     breaks = seq(from = 0, to = 380000, 
+                                  by = 40000),
+                     labels =  function(x) format(x, scientific = TRUE)) +
+  labs(x = "Month",
+       y = "Number of Rides (Count)",
+       title = "Visualisation For Question 2",
+       caption = "Figure 2: Stating the number of bike rides (Count)
+       against the first seven months of 2019 and 2020",
+       fill = "Year")
+
+```
+
+
+
+Investigating the if the global pandemic has had an impact on the number of bike rides through Washington DC, illustrated on Figure 2, it is evident that the pandemic has had an effect. The 2019  data (bars in red) show a steady increase through the winter months and then a large increase in the number of bike rides during spring 2019, and finally staying at a consistent number in the summer months. 2020 (bars in blue) noticeably holds a different trend, not reaching the same numbers of rides anywhere like 2019 shows on Figure 2. plus, there is a decrease in the number of bike rides during the spring, which in 2019, saw a huge increase. A reason for this is most likely because of the unprecedented lockdown measures placed on cities in the US during the pandemic. Answering the question, the pandemic has had a dramatic impact on the bike hire usage in Washington DC, as numbers have dropped by around 240 thousand rides in April alone. 
+
+
+## 3. What is/are the most popular travel destination(s)?
+
+```{r, echo = FALSE, message = TRUE, eval = TRUE, }
+
+rides %>%
+  group_by(end_station_name) %>%
+  count(sort = TRUE) %>%
+  ungroup() %>%
+  slice_head(n = 15) %>%
+  ggplot(aes(y = end_station_name)) +
+  # shortening the station names
+  scale_y_discrete(labels = c( "Jefferson Memorial" , 
+                               "M St NW", "Rhode Island Avenue", "Eastern Market Metro", 
+                               "New Hampshire Ave", "V St NW", "Jefferson Dr. 12th St",
+                               "Lincoln Memorial Circle NW", "Madison Dr", 
+                               "Jefferson Dr. 14th St", "Massachusetts Ave", "M St NE",
+                               "Lincoln Memorial", "P St NW", "Columbus Circle" )) +
+   scale_x_continuous(limits = c(0 , 85000),
+                     breaks = seq(from = 0, to = 85000, by = 20000),
+                     labels =  function(x) format(x, scientific = TRUE)) +
+  geom_col(mapping = aes(y = reorder(end_station_name, n), x = n),
+           fill = "red", alpha = 0.4) +
+  labs(y = "End station",
+       x = "Number of rides",
+       title = "Visualisation For Question 3",
+       caption = "Figure 3: Displaying the most common bike end stations  
+       versus the number of jouney's ended at those stations throughout 2019 and 2020")
+# "Columbus Circle" = `Columbus Circle / Union Station`,
+
+```
+
+
+
+Figure 3 is showing that the most visited destination in Washington DC is Columbus Circle with around 70 thousand end times throughout 2019 and 2020. The destinations at Columbus Circle are ahead by a considerable amount compared to other destinations. Columbus Circle has twenty thousand more journey destinations than the second most highest journey destination, being P Street Northwest. Besides Columbus Circle, fifteen of the top bike ride destinations in Washington DC have similar numbers, which are forty thousand ± ten thousand. Columbus Circle is a famous monument plaza at the heart of Washington DC and is the connection between multiple roadways. Thus, this is a realistic results in having the highest bike destinations due to its attraction. P Street Northwest is one of the main streets that runs from one side of Washington DC to the other, with such a large area to end a bike journey it is realistic that it is the second most highest end destination.  
+
+
+## 4. Are the bikes used more so for job commuting than recreational travel?
+
+
+```{r, echo = FALSE, message = TRUE, eval = TRUE, error=FALSE, warning=FALSE}
+
+rides %>%
+  mutate(weekday = wday(started_at, 
+                        week_start = getOption("lubridate.week.start", 1), 
+                        label = TRUE)) %>%
+  ggplot(mapping = 
+           aes(
+             x = weekday,
+             y = duration / 60, 
+             fill = weekday)
+  ) + 
+  geom_boxplot(alpha = 0.6) +
+  scale_y_continuous(limits = c(0, 60), breaks = ) +
+  labs(y = "Duration in minutes",
+       x = "Day of the Week",
+       title = "Visualisation For Question 4",
+       caption = "Figure 4: The total number of bike journey's made per month 
+       for the nineteen months of bike rides data (2019 to July 2020)",
+       fill = "Member Type")
+
+```
+
+
+
+As the average bike journey duration's on weekdays will help determine if the bikes are used for job commuting or recreation, at first glance Figure 5 shows weekdays do have very near median journey bike duration's in minutes. The average bike journey last ten minutes on weekdays and slightly higher on weekends, approximately fifteen minutes. From the consistency in bike duration's existing at ten minutes on every weekday, it is assumed that they are for job commutes. And because the weekend median bike journey is different, being slightly longer, then it is assumed they are for recreational use. Answering the question, the bikes are predominately used for commuting over recreational use.  
+
+
+# 5. What is the general trend of bike rides from the start of 2019 to mid 2020?
+
+
+```{r, echo = FALSE, message = TRUE, eval = TRUE, error = FALSE, warning = FALSE}
+# glimpse(rides)
+rides$member_casual <- parse_factor(rides$member_casual)
+# member_casual was a character and couldn't be used on in ggplot so needed to be parsed
+
+rides %>%
+  mutate(floor_started_at = floor_date(started_at, unit = "month")) %>%
+  ggplot(mapping = aes(x = floor_started_at)) +
+  geom_bar(mapping = aes(fill = member_casual), alpha = 0.6) +
+  scale_y_continuous(limits = c(0 , 400000), 
+                     breaks = seq(from = 0, to = 400000, by = 50000),
+                     labels =  function(x) format(x, scientific = TRUE)) +
+  labs(x = "month",
+       y = "Number of Rides (Count)",
+       title = "Visualisation For Question 5",
+       caption = "Figure 5: The total number of bike journey's made per month 
+       for the nineteen months of bike rides data (2019 to July 2020)",
+       fill = "Membership Type")
+```
+
+
+
+Figure 5 illustrates the results of the number of bike rides over time. Moreover, here it can be seen regarding membership type that there is massively more subscribed members than casual members paying as they ride, in 2019. In 2020 there are more casual members than subscribed members, a reason for the dramatic change has to be because of the growing pandemic in 2020 and the lockdown measures, forcing people to end their subscription memberships. It seems that in 2020 individuals prefer to pay as they ride because of uncertainty perhaps. Looking at the trend of the overall numbers of rides since January 2019, there has been an increase and the a sudden decrease up to the present day. Bike rides grow in popularity in the first nine months of 2019, reaching a maximum number of 350 thousands rides in a month. During Autumn and Winter the bike ride numbers decreased by 150 thousand. The first months of 2020 saw bike ride number decrease further still and hit the lowest point of 75 thousand in April, the time of the lockdown. In the recent months, bike rides have increased. 
+
+
+# Conculsion
+
+
+Summarising the outcomes it appears that the most common bike ride duration is around six minutes and that there has been a behavioural change in bike ride numbers since the pandemic begun, as numbers have dropped by around 240 thousand rides in April 2020 compared to April 2019. the most popular travel destination is Columbus Circle and the bike hire service is used more so for job commuting than recreation. The general trend in the number of bike rides since 2019 started increasing steadily until the winter months came where a decrease in bike usage appeared, however in early 2020 the bike ride numbers drop further and are only in recent months growing.
+
+
+
+
+Conducting a further question on the results from this report is in regard to the bike usage being either for recreation or commuting. The way that Question 4 was operationalised does not give very accurate results. The future question could be how many rides were started, on weekdays, at the early hours of the morning (from 05:30 to 09:00) and the evening times of 16:30 to 18:30. An assumption here is that all bike journeys starting between this period are commute related. Subsequently comparing the journeys in this time frame to all others including the rides on the weekend, should provide a more accurate result. 
